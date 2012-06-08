@@ -1,0 +1,92 @@
+#!/usr/bin/env ruby
+require 'open-uri'
+require 'net/ftp'
+require 'open3'
+require 'digest/md5'
+
+GZIP = system("pigz -h &> /dev/null") ? "pigz -p4" : "gzip"
+
+def get_binary(cmd)
+	paths = ["/usr/bin", "/usr/local/bin/", "scripts/", "/mnt/MD3200v2p1/bin/"]
+	paths.each do |path|
+		fname = File.join(path, cmd)
+		return fname if File.exists? fname and File.executable? fname
+	end
+  raise "Could not find binary #{cmd}"
+end
+
+def retrieve_sra(srx)
+	url = "ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByExp/sra/SRX/#{srx[0..5]}/#{srx}"
+
+	sra_names = []
+	ftp = Net::FTP.new('ftp-trace.ncbi.nlm.nih.gov')
+	ftp.login
+	rootdir = "/sra/sra-instant/reads/ByExp/sra/SRX/#{srx[0..5]}/#{srx}"
+	ftp.chdir(rootdir)
+	ftp.list().each do |f|
+		dir = f.strip().split(/\s/)[-1]
+		ftp.chdir(File.join(rootdir, dir))
+		ftp.list("*.sra").each do |sra|
+			fname = sra.strip().split(/\s/)[-1]
+			STDERR.write("Fetching #{fname}\n")
+			#ftp.getbinaryfile(fname)
+			STDERR.write("Done\n")
+			if ftp.list("#{fname}.md5")
+				ftp.getbinaryfile("#{fname}.md5")
+				md5sum = ""
+				File.open("#{fname}.md5") do |f|
+					md5sum = f.read().split(/\s/)[0]
+				end
+				STDERR.write("Calculating MD5\n")
+				digest = Digest::MD5.hexdigest(File.read(fname))
+				if digest == md5sum
+					puts "#{fname}: MD5 checksum #{digest} OK"
+					sra_names << fname
+				else
+					STDERR.write("#{fname}: MD5 checksum #{digest} does not match #{md5sum}!\n")
+				end
+			else
+				sra_names << fname
+			end
+		end
+	end
+	ftp.close
+	return sra_names
+end
+
+def process_srx(srx)
+	fastq_dump = get_binary("fastq-dump")
+	fastq_files = []
+	sra_files = retrieve_sra(srx)
+	
+	sra_files.each do |fname|
+		cmd = "#{fastq_dump} -A #{fname}"
+		Open3.popen3(cmd) do |stdin, stdout, stderr|
+			err = stderr.read
+			if err and err !~ /Written/
+				print err
+				STDERR.write("fastq-dump of #{fname} failed\n")
+			else
+				STDERR.write("Successfully converted #{fname} to fastq\n")
+				STDERR.write(err)
+				File.delete(fname)
+				fastq = fname + ".fastq"
+				`#{GZIP} #{fastq}`
+				fastq += ".gz"
+				fastq_files << fastq
+			end
+		end
+	end
+end
+
+if ARGV.length < 1:
+	puts "Usage: sra2track accession1 [accession2 ...]"
+	Process.exit
+end
+
+ARGV.each do|srx|
+	process_srx(srx)
+end
+
+
+

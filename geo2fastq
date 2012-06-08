@@ -1,0 +1,164 @@
+#!/usr/bin/env ruby
+require 'open-uri'
+require 'net/ftp'
+require 'open3'
+require 'digest/md5'
+require 'hpricot'
+require 'optparse'
+
+GZIP = system("pigz -h &> /dev/null") ? "pigz -p4" : "gzip"
+EUTILS_URL = "http://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+FTP_ROOT = "ftp-trace.ncbi.nlm.nih.gov"
+
+def search_geo(term)
+	doc = Hpricot(open("#{EUTILS_URL}esearch.fcgi?db=sra&term=#{term}&retmax=5000&usehistory=y)"))
+	querykey = doc.at("querykey").inner_html
+	webenv = doc.at("webenv").inner_html
+	doc = Hpricot(open("#{EUTILS_URL}/esummary.fcgi?db=gds&query_key=#{querykey}&WebEnv=#{webenv}"))
+	exps = {}
+	expname = {}
+	doc.search("//item[@name='ExpXml']").each do |x|
+		x.inner_html =~ /Study acc="(\w+)" name="(\w+): ([^"]+)"/
+		study_acc, gse, study_name = $1, $2, $3
+		if gse
+			expname[gse] = study_name
+			exps[gse] = [] unless exps.has_key? gse
+		
+			x.inner_html =~ /(SRX\d+)/
+			srx = $1	
+			x.inner_html =~ /name="(GSM\d+):\s+([^"]+)/
+			gsm = $1
+			name = $2
+			name.gsub!(/[^\w.-]+/, "_")
+			exps[gse].push([srx,gsm,name])
+		end
+	end
+	return expname, exps
+end
+
+def get_binary(cmd)
+	paths = ["/usr/bin", "/usr/local/bin/", "scripts/", "/mnt/MD3200v2p1/bin/"]
+	paths.each do |path|
+		fname = File.join(path, cmd)
+		return fname if File.exists? fname and File.executable? fname
+	end
+  raise "Could not find binary #{cmd}"
+end
+
+def retrieve_sra(srx, outdir)
+	sra_names = []
+	ftp = Net::FTP.new(FTP_ROOT)
+	ftp.login
+	rootdir = "/sra/sra-instant/reads/ByExp/sra/SRX/#{srx[0..5]}/#{srx}"
+	ftp.chdir(rootdir)
+	Dir.mkdir outdir if not File.exist? outdir 
+	ftp.list().each do |f|
+		dir = f.strip().split(/\s/)[-1]
+		ftp.chdir(File.join(rootdir, dir))
+		ftp.list("*.sra").each do |sra|
+			fname = sra.strip().split(/\s/)[-1]
+			local_fname = File.join(outdir, fname)
+			STDERR.write("Fetching #{fname}...\n")
+			ftp.getbinaryfile(fname, local_fname)
+			STDERR.write("Done\n")
+#			unless ftp.list().select{|f| f =~ /md5/}.empty?
+#				md5file = File.join(outdir, "#{fname}.md5")
+#				ftp.getbinaryfile("#{fname}.md5", md5file)
+#				md5sum = ""
+#				File.open(md5file) do |f|
+#					md5sum = f.read().split(/\s/)[0]
+#				end
+#				STDERR.write("Calculating MD5\n")
+#				digest = Digest::MD5.hexdigest(local_fname)
+#				if digest == md5sum
+#					puts "#{fname}: MD5 checksum #{digest} OK"
+#					sra_names << local_fname
+#				else
+#					STDERR.write("#{fname}: MD5 checksum #{digest} does not match #{md5sum}!\n")
+#				end
+#			else
+#				STDERR.write("No md5 file found, skipping md5 check\n")
+				sra_names << local_fname
+#			end
+		end
+	end
+	ftp.close
+	return sra_names
+end
+
+def process_srx(srx, outdir, name)
+	fastq_dump = get_binary("fastq-dump")
+	fastq_files = []
+	
+	sra_files = retrieve_sra(srx, outdir)
+	
+	sra_files.each do |fname|
+		cmd = "#{fastq_dump} -A #{fname} -O #{outdir}"
+		STDERR.write("Converting #{fname} to fastq...\n")
+		Open3.popen3(cmd) do |stdin, stdout, stderr|
+			err = stderr.read
+			if err and err.length > 0
+				STDERR.write("fastq-dump of #{fname} failed\n")
+				STDERR.write("#{err}\n")
+			else
+				STDERR.write("Successfully converted #{fname} to fastq\n")
+				File.delete(fname) if File.exist? fname
+				#fastq = "#{name
+				old_fq = File.join(outdir, "#{fname.gsub(/\//, "_")}.fastq")
+				fname =~ /(SRR.+)\.sra/
+				srr = $1
+				fastq = File.join(outdir, "#{srr}.#{name}.fq")
+				File.rename(old_fq, fastq)
+				`#{GZIP} #{fastq}`
+				fastq += ".gz"
+				fastq_files << fastq
+			end
+		end
+	end
+end
+
+
+options = {:download => false}
+
+optparse = OptionParser.new do |opts|
+	opts.banner = "Usage: #{File.basename(__FILE__)} ACCESSION [options]"
+	
+	opts.on('-d', '--download', "Download data from GEO. If this option is not specified, only show metadata.") do 
+		options[:download] = true
+	end
+
+	opts.on( '-h', '--help', 'Display help' ) do
+		puts opts
+		exit
+	end
+
+end
+
+optparse.parse!
+
+if ARGV.length != 1
+	puts optparse
+	exit
+end
+
+term = ARGV[0]
+
+expname, exps = search_geo(term)
+
+if options[:download]
+	expname.each do |id,study_name|
+	 	outdir = id
+		exps[id].each do |srx, gsm, name|
+			process_srx(srx, outdir, "#{gsm}.#{name}")
+		end
+	end
+else
+	expname.each do |id,study_name|
+		puts "#{id}: #{study_name}"
+		exps[id].each do |srx, gsm, name|
+			puts "SRX: #{srx} GSM: #{gsm} Name: #{name}"
+		end
+		puts
+	end
+end
+
