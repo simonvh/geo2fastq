@@ -93,7 +93,7 @@ def process_srx(srx, outdir, name)
 	sra_files = retrieve_sra(srx, outdir)
 	
 	sra_files.each do |fname|
-		cmd = "#{fastq_dump} -A #{fname} -O #{outdir}"
+		cmd = "#{fastq_dump} --split-files -A #{fname} -O #{outdir}"
 		STDERR.write("Converting #{fname} to fastq...\n")
 		Open3.popen3(cmd) do |stdin, stdout, stderr|
 			err = stderr.read
@@ -102,16 +102,18 @@ def process_srx(srx, outdir, name)
 				STDERR.write("#{err}\n")
 			else
 				STDERR.write("Successfully converted #{fname} to fastq\n")
+				base = File.basename(fname, ".sra") 
 				File.delete(fname) if File.exist? fname
-				#fastq = "#{name
-				old_fq = File.join(outdir, "#{fname.gsub(/\//, "_")}.fastq")
 				fname =~ /(SRR.+)\.sra/
 				srr = $1
-				fastq = File.join(outdir, "#{srr}.#{name}.fq")
-				File.rename(old_fq, fastq)
-				`#{GZIP} #{fastq}`
-				fastq += ".gz"
-				fastq_files << fastq
+				#fastq = "#{name
+				Dir.glob("#{outdir}/*#{base}*fastq").each do |old_fq|
+					fastq = old_fq.gsub(/\/[^\/]+#{base}\.sra/, "/#{srr}.#{name}").gsub(/fastq$/, "fq")
+					File.rename(old_fq, fastq)
+					`#{GZIP} #{fastq}`
+					fastq += ".gz"
+					fastq_files << fastq
+				end
 			end
 		end
 	end
