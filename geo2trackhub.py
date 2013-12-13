@@ -12,8 +12,12 @@ import argparse
 import glob
 import pp
 from collections import defaultdict
+from trackhub import Hub, GenomesFile, Genome, TrackDb, Track
+from trackhub.upload import upload_track, upload_hub
+from trackhub.helpers import show_rendered_files
 
-URLBASE = "ftp://ftp.ncbi.nih.gov/pub/geo/DATA/SOFT/by_series/{0}/{0}_family.soft.gz"
+HUB_URLBASE = 'http://mbpcsimon.azn.nl/trackhubs'
+GEOFTP_URLBASE = "ftp://ftp.ncbi.nih.gov/pub/geo/DATA/SOFT/by_series/{0}/{0}_family.soft.gz"
 FTP_ROOT = "ftp-trace.ncbi.nlm.nih.gov"
 VERSION = '1.0'
 ALIGN_CMD = "/home/simon/git/soladmin/script/soladmin_align.rb -i {0} -o {1} -a bwa -g {2} -r /usr/share/genomes"
@@ -69,7 +73,7 @@ def accession2sra(accessions):
     
     for accession in accessions:
         #print URLBASE.format(accession)
-        fh = urlopen(URLBASE.format(accession))
+        fh = urlopen(GEOFTP_URLBASE.format(accession))
         fo = StringIO.StringIO(fh.read())
         g = gzip.GzipFile(fileobj=fo)
         record = soft_read(g)
@@ -201,23 +205,23 @@ for gse, info in entrez_search(search_term).items():
         job_server = pp.Server(secret="polentafries")
         
         samples = []
-#        jobs = []
+        jobs = []
         for sample in accession2sra(gse):
             samples.append(sample)
-#            for sra_link in sample['sra']:
-#                for fname in download_sra(sra_link, gse):
-#                    job = job_server.submit(
-#                                            sra2fastq, 
-#                                            (fname, sample['gsm'], gse), 
-#                                            (), 
-#                                            ("os", "sys", "re", "glob", "subprocess")
-#                                            )
-#            jobs.append(job)
-#        
-#        for job in jobs:
-#            for fq in job():
-#                print fq
-#
+            for sra_link in sample['sra']:
+                for fname in download_sra(sra_link, gse):
+                    job = job_server.submit(
+                                            sra2fastq, 
+                                            (fname, sample['gsm'], gse), 
+                                            (), 
+                                            ("os", "sys", "re", "glob", "subprocess")
+                                            )
+            jobs.append(job)
+        
+        for job in jobs:
+            for fq in job():
+                print fq
+
         jobs = []
         for sample in samples:
             genome = tax2genome[sample['tax_id']]
@@ -260,4 +264,58 @@ for gse, info in entrez_search(search_term).items():
             #if stderr:
             #    sys.stderr.write("bam2bw failed\n")
             #    sys.stderr.write("{0}\n".format(stderr))
-                
+
+    hub = Hub(
+        hub=gse,
+        short_label=gse,
+        long_label="Hub for {0}".format(gse),
+        email='s.vanheeringen@ncmls.ru.nl')
+
+    genomes_file = GenomesFile()
+    
+    trackdb = TrackDb()
+
+    local_dir = gse
+    upload_dir = "/home/simon/dat/trackhubs"
+    user = "simon"
+    host = "localhost"
+
+    hub.remote_fn = os.path.join(upload_dir, gse, os.path.basename(hub.local_fn))
+    
+    all_tracks = {}
+    
+    for sample in samples:
+        genome = tax2genome[sample['tax_id']]
+        all_tracks.setdefault(genome, [])
+
+        name = re.sub('[^0-9a-zA-Z]+', '_',sample['name'])
+        track = Track(
+            name=name,
+            url=os.path.join(HUB_URLBASE, gse, genome, "{0}.bw".format(sample['gsm'])),
+            tracktype='bigWig',
+            short_label=sample['gsm'],
+            long_label=name,
+            color='128,128,0',
+            maxHeightPixels='30:30:11',
+            )
+        basename = os.path.basename(track.url)
+        track.local_fn = os.path.join(local_dir, basename)
+        track.remote_fn = os.path.join(upload_dir, gse, genome, basename)
+        all_tracks[genome].append(track)
+    
+    for build,tracks in all_tracks.items(): 
+
+        genome = Genome(build)
+        trackdb.add_tracks(tracks)
+        genome.add_trackdb(trackdb)
+        genomes_file.add_genome(genome)
+        hub.add_genomes_file(genomes_file)
+
+    results = hub.render()
+
+    for track in trackdb.tracks:
+        upload_track(track=track, host=host, user=user)
+    
+    upload_hub(hub=hub, host=host, user=user)
+
+
