@@ -70,7 +70,6 @@ def accession2sra(accessions):
     if type("") == type(accessions):
         accessions = [accessions]
     
-    
     for accession in accessions:
         #print URLBASE.format(accession)
         fh = urlopen(GEOFTP_URLBASE.format(accession))
@@ -164,6 +163,59 @@ def bam2bw(bam, bw):
     stdout,stderr = p.communicate()
     return stdout, stderr
 
+def create_hub(gse, samples, upload_dir, user, host,  email):
+    hub = Hub(
+        hub=gse,
+        short_label=gse,
+        long_label="Hub for {0}".format(gse),
+        email=email)
+
+    genomes_file = GenomesFile()
+    
+    trackdb = TrackDb()
+
+    local_dir = gse
+
+    hub.remote_fn = os.path.join(upload_dir, gse, os.path.basename(hub.local_fn))
+    
+    all_tracks = {}
+    
+    for sample in samples:
+        genome = sample['genome']
+        all_tracks.setdefault(genome, [])
+
+        name = re.sub('[^0-9a-zA-Z]+', '_',sample['name'])
+        track = Track(
+            name=name,
+            url=os.path.join(HUB_URLBASE, gse, genome, "{0}.bw".format(sample['gsm'])),
+            tracktype='bigWig',
+            short_label=sample['gsm'],
+            long_label=name,
+            color='128,128,0',
+            maxHeightPixels='30:30:11',
+            )
+        basename = os.path.basename(track.url)
+        track.local_fn = os.path.join(local_dir, basename)
+        track.remote_fn = os.path.join(upload_dir, gse, genome, basename)
+        all_tracks[genome].append(track)
+    
+    for build,tracks in all_tracks.items(): 
+
+        genome = Genome(build)
+        trackdb.add_tracks(tracks)
+        genome.add_trackdb(trackdb)
+        genomes_file.add_genome(genome)
+        hub.add_genomes_file(genomes_file)
+
+    results = hub.render()
+
+    for track in trackdb.tracks:
+        upload_track(track=track, host=host, user=user)
+    
+    upload_hub(hub=hub, host=host, user=user)
+
+
+
 description = """
 geo2fastq v{0}
 """.format(VERSION)
@@ -224,7 +276,8 @@ for gse, info in entrez_search(search_term).items():
 
         jobs = []
         for sample in samples:
-            genome = tax2genome[sample['tax_id']]
+            sample['genome'] = tax2genome[sample['tax_id']]
+            genome = sample['genome']
             if genome: 
                 bams = []
                 fqs = glob.glob(os.path.join(gse, "*{0}*.fq.gz".format(sample['gsm'])))
@@ -265,57 +318,6 @@ for gse, info in entrez_search(search_term).items():
             #    sys.stderr.write("bam2bw failed\n")
             #    sys.stderr.write("{0}\n".format(stderr))
 
-    hub = Hub(
-        hub=gse,
-        short_label=gse,
-        long_label="Hub for {0}".format(gse),
-        email='s.vanheeringen@ncmls.ru.nl')
-
-    genomes_file = GenomesFile()
-    
-    trackdb = TrackDb()
-
-    local_dir = gse
-    upload_dir = "/home/simon/dat/trackhubs"
-    user = "simon"
-    host = "localhost"
-
-    hub.remote_fn = os.path.join(upload_dir, gse, os.path.basename(hub.local_fn))
-    
-    all_tracks = {}
-    
-    for sample in samples:
-        genome = tax2genome[sample['tax_id']]
-        all_tracks.setdefault(genome, [])
-
-        name = re.sub('[^0-9a-zA-Z]+', '_',sample['name'])
-        track = Track(
-            name=name,
-            url=os.path.join(HUB_URLBASE, gse, genome, "{0}.bw".format(sample['gsm'])),
-            tracktype='bigWig',
-            short_label=sample['gsm'],
-            long_label=name,
-            color='128,128,0',
-            maxHeightPixels='30:30:11',
-            )
-        basename = os.path.basename(track.url)
-        track.local_fn = os.path.join(local_dir, basename)
-        track.remote_fn = os.path.join(upload_dir, gse, genome, basename)
-        all_tracks[genome].append(track)
-    
-    for build,tracks in all_tracks.items(): 
-
-        genome = Genome(build)
-        trackdb.add_tracks(tracks)
-        genome.add_trackdb(trackdb)
-        genomes_file.add_genome(genome)
-        hub.add_genomes_file(genomes_file)
-
-    results = hub.render()
-
-    for track in trackdb.tracks:
-        upload_track(track=track, host=host, user=user)
-    
-    upload_hub(hub=hub, host=host, user=user)
+        create_hub(gse, samples, "/home/simon/dat/trackhubs", "simon", "localhost", "s.vanheeringen@ncmls.ru.nl")
 
 
