@@ -29,7 +29,7 @@ args = p.parse_args()
 download = args.download
 search_term = args.term
 
-for gse, info in Geo.search(search_term):
+for gse, info in Geo.search(search_term).items():
     print "{0}\t{1}".format(gse, info['title'])
     for gsm,title in info['samples'].items():
         print "  {0}\t{1}".format(gsm, title)

@@ -43,13 +43,13 @@ def fastq2bam(fqs, bam, genome):
 def sra2fastq(sra, name, outdir="."):
     try:
         FASTQ_DUMP = "fastq-dump"
-        cmd = "{0} --split-files -A {1} -O {2}".format(
+        cmd = "{0} --split-files --gzip {1} -O {2}".format(
                                                   FASTQ_DUMP,
                                                   sra,
                                                   outdir,
                                                   )
     
-        fqs = []
+        
         p = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
         stdout, stderr = p.communicate()
         if stderr:
@@ -62,13 +62,11 @@ def sra2fastq(sra, name, outdir="."):
         m = p.search(sra)
         srr = m.group(1)
   
-        for old_fq in glob.glob(os.path.join(outdir, "*{0}*fastq".format(base))):
-            fastq = os.path.join(outdir, "{0}.{1}.fq".format(srr, name))
+        fqs = []
+        for old_fq in glob.glob(os.path.join(outdir, "*{0}*fastq.gz".format(base))):
+            fastq = os.path.join(outdir, "{0}.{1}.fq.gz".format(srr, name))
             os.rename(old_fq, fastq)
-            cmd = "pigz {0}".format(fastq)
-            p = subprocess.Popen(cmd, shell=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-            stdout, stderr = p.communicate()
-            fqs.append("{0}.gz".format(fastq))
+            fqs.append(fastq)
     
         return fqs
     

@@ -12,6 +12,9 @@ from collections import defaultdict
 import pp
 import pickle
 
+from geo2fastq.convert import sra2fastq
+
+
 GEOFTP_URLBASE = "ftp://ftp.ncbi.nih.gov/pub/geo/DATA/SOFT/by_series/{0}/{0}_family.soft.gz"
 FTP_ROOT = "ftp-trace.ncbi.nlm.nih.gov"
 
@@ -35,7 +38,7 @@ class Geo:
                 callable(gse.read)
                 gen = self.get_sample_info(fo=gse)
             except:
-                slef.gse = gse
+                self.gse = gse
                 gen = self.get_sample_info(accession=self.gse) 
             for sample in gen:
                 self.samples[sample['gsm']] = sample
@@ -163,14 +166,16 @@ class Geo:
                                         ("os", "sys", "re", "glob", "subprocess")
                                         )
                 jobs.append(job)
-        
+                print job()
+                sys.exit()
         for job in jobs:
+
             job()
         
-    def _download_sample(self, sample):
+    def _download_sample(self, sample, outdir="."):
         for sra_link in sample['sra']:
-            self.download_sra(sra_link)
-
+            for fname in self.download_sra(sra_link, outdir):
+                yield fname
 
     def _soft_read(self, fh):
         """ Parses a filehandle of a SOFT formatted file
