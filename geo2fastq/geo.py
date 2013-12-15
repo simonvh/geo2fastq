@@ -9,6 +9,8 @@ import re
 import os
 import subprocess as sp
 from collections import defaultdict
+import pp
+import pickle
 
 GEOFTP_URLBASE = "ftp://ftp.ncbi.nih.gov/pub/geo/DATA/SOFT/by_series/{0}/{0}_family.soft.gz"
 FTP_ROOT = "ftp-trace.ncbi.nlm.nih.gov"
@@ -19,11 +21,23 @@ tax2genome["7955"] = "danRer7"
 
 class Geo:
     def __init__(self, gse="", email=""):
+        """ Create Geo object to search GEO and parse GEO experiment data
+        
+        :param gse: GEO accession or filehandle to GEO soft file
+        :type accession: string or file
+        """
+        
         self.gse = gse
         self.email = email
         self.samples = {}
         if gse:
-            for sample in self.get_sample_info(gse):
+            try:
+                callable(gse.read)
+                gen = self.get_sample_info(fo=gse)
+            except:
+                slef.gse = gse
+                gen = self.get_sample_info(accession=self.gse) 
+            for sample in gen:
                 self.samples[sample['gsm']] = sample
 
     @classmethod
@@ -51,25 +65,38 @@ class Geo:
                     results[gse]['samples'][sample['Accession']] = sample['Title'].encode('utf8')
         return results
     
-    def get_sample_info(self, accession):
+    def get_sample_info(self, accession=None, fo=None):
         """ Accepts a single accession or a list of accessions and returns
         an generator of detailed sample information.
-        
+       
+        Supply either an accession or a SOFT filehandle.    
+     
         :param accession: GEO accession
         :type accession: string
+        :params fo: filehandle to gzipped SOFT file
+        :type fo: file
         """
         
-        # Dowload and parse GEO SOFT file
-        fh = urlopen(GEOFTP_URLBASE.format(accession))
-        fo = StringIO.StringIO(fh.read())
+        if not fo:
+            if not accession:
+                sys.stderr.write("Please supply either accession or fo")
+                sys.exit(1)
+            # Dowload GEO SOFT file
+            fh = urlopen(GEOFTP_URLBASE.format(accession))
+            fo = StringIO.StringIO(fh.read())
+        
+        # Parse gzipped SOFT file
         g = gzip.GzipFile(fileobj=fo)
         record = self._soft_read(g)
+        
+        self.gse = record['SERIES'].keys()[0]
         
         for gsm, data in record['SAMPLE'].items():
             #for k,v in data.items():
             #    print k,v
             sample = {'gsm':gsm}
             sample['tax_id'] = data['Sample_taxid_ch1'][0]
+            sample['genome'] = tax2genome[sample['tax_id']]
             sample['sra'] = []
             sample['name'] = data['Sample_title'][0]
             sample['library'] = data['Sample_library_strategy'][0]
@@ -112,21 +139,33 @@ class Geo:
             for fname in self.download_srx(srx, outdir):
                 yield fname
                     
-    else:
-        sys.stderr.write("No SRA link found for {0}\n".format(gsm))
+        else:
+            sys.stderr.write("No SRA link found for {0}\n".format(gsm))
 
            
     def download(self, gsm="", outdir="./", format="fastq"):
-        
+        job_server = pp.Server(secret="polentafries") 
+        jobs = []
+ 
         outdir = os.path.join(outdir, self.gse)
+        samples = self.samples.values()
         if gsm:
             if not self.samples.has_key[gsm]:
                 raise Exeception
-            self._download_sample(self.samples[gsm], outdir=outdir)
-        else:
-            for gsm, sample in self.sample.items():
-                self._download_sample(sample, outdir=outdir)
-        # Convert files
+            samples = [self.samples[gsm]]
+        
+        for sample in samples:
+            for fname in self._download_sample(sample, outdir=outdir):
+                job = job_server.submit(
+                                        sra2fastq,
+                                        (fname, sample['gsm'], self.gse),
+                                        (),
+                                        ("os", "sys", "re", "glob", "subprocess")
+                                        )
+                jobs.append(job)
+        
+        for job in jobs:
+            job()
         
     def _download_sample(self, sample):
         for sra_link in sample['sra']:
@@ -152,12 +191,16 @@ class Geo:
         return soft
 
 if __name__ == "__main__":
-    for k,v in Geo.search("Heeringen AND Veenstra").items():
-        print k,v
+    #for k,v in Geo.search("Heeringen AND Veenstra").items():
+    #    print k,v
     
-    x = Geo("GSE19413")
-    for sample in x.sample:
+    #x = Geo("GSE14025")
+    x = Geo(open("tests/data/GSE14025_family.soft.gz"))
+    for sample in x.samples.values():
         print sample
+    
+    from geo2fastq.geohub import create_hub
+    create_hub(x)
     #print d.keys()
     #print Geo.get_sample_info(d.keys()[0])
 

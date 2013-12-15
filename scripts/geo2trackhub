@@ -5,6 +5,7 @@ import os
 
 from geo2fastq.config import VERSION
 from geo2fastq import Geo
+from geo2fastq import fastq2bam, bam2bw
 
 description = """
 geo2fastq v{0}
@@ -46,38 +47,13 @@ for gse, info in Geo.search(search_term):
         g.download()
 
         jobs = []
-        for sample in samples:
+        for sample in g.samples:
             sample['genome'] = tax2genome[sample['tax_id']]
             genome = sample['genome']
             if genome: 
-                bams = []
                 fqs = glob.glob(os.path.join(gse, "*{0}*.fq.gz".format(sample['gsm'])))
-                for fq in fqs:
-                    bam = fq.replace(".fq.gz", "")
-                    cmd = ALIGN_CMD.format(fq, bam, genome)
-                    sys.stderr.write("Mapping {0} to {1}\n".format(fq, genome))
-                    p = sp.Popen(cmd, shell=True, stderr=sp.PIPE, stdout=sp.PIPE)
-                    stdout, stderr = p.communicate()
-                    if not os.path.exists("{0}.bam".format(bam)):
-                        sys.stderr.write("Alignment failed\n")
-                        sys.stderr.write(stderr)
-                        sys.exit(1)
-                    bams.append("{0}.bam".format(bam))
                 bam = os.path.join(gse, "{0}.bam".format(sample['gsm']))
-                if len(bams) == 1:
-                    os.rename(bams[0], bam)
-                    os.rename(bams[0] + ".bai", bam + ".bai")
-                elif len(bams) > 1:
-                    cmd = "{0} merge {1} {2} && samtools index {1}".format(
-                                                    "samtools",
-                                                    bam,
-                                                    " ".join(bams),
-                                                    )
-                    ret = sp.call(cmd, shell=True)
-                    if not ret:
-                        for bamfile in bams:
-                            os.unlink(bamfile)
-
+                fastq2bam(fqs, bam, genome) 
                 bw = bam.replace(".bam", ".bw")
                 job = job_server.submit(bam2bw, (bam, bw), (), ("subprocess", ))
                 jobs.append(job)
