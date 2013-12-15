@@ -27,15 +27,23 @@ tax2genome["8364"] = "xenTro3"
 tax2genome["7955"] = "danRer7"
 
 class Geo:
-    def __init__(self):
-		pass
+    def __init__(self, gse="", email=""):
+        self.gse = gse
+        self.email = email
+        self.samples = {}
+        if gse:
+            for sample in self.get_sample_info(gse):
+                self.samples[sample['gsm']] = sample
 
     @classmethod
     def search(self, term):
         """ Search NCBI GEO and return a dictionary of GEO accessions
-		describing series (GSE) and samples (GSM).
-		"""
-		Entrez.email = "s.vanheeringen@ncmls.ru.nl"      
+        describing series (GSE) and samples (GSM).
+        
+        :param term: search term(s)
+        :type term: string
+        """
+        Entrez.email = "s.vanheeringen@ncmls.ru.nl"      
         handle = Entrez.esearch("gds", term)
         record = Entrez.read(handle)
         results = {}
@@ -52,89 +60,107 @@ class Geo:
                     results[gse]['samples'][sample['Accession']] = sample['Title'].encode('utf8')
         return results
     
+    def get_sample_info(self, accession):
+        """ Accepts a single accession or a list of accessions and returns
+        an generator of detailed sample information.
         
-    def get_sample_info(accessions):
-		""" Accepts a single accession or a list of accessions and returns
-		detailed sample information.
-		"""
-        if type("") == type(accessions):
-            accessions = [accessions]
+        :param accession: GEO accession
+        :type accession: string
+        """
         
-        for accession in accessions:
-            #print URLBASE.format(accession)
-            fh = urlopen(GEOFTP_URLBASE.format(accession))
-            fo = StringIO.StringIO(fh.read())
-            g = gzip.GzipFile(fileobj=fo)
-            record = soft_read(g)
-            
-            for gsm, data in record['SAMPLE'].items():
-                #for k,v in data.items():
-                #    print k,v
-                sample = {'gsm':gsm}
-                sample['tax_id'] = data['Sample_taxid_ch1'][0]
-                sample['sra'] = []
-                sample['name'] = data['Sample_title'][0]
-                sample['library'] = data['Sample_library_strategy'][0]
-                sample['info'] = data['Sample_characteristics_ch1']
-                for sra_link in [x for x in data['Sample_relation'] if x.startswith("SRA")]:
-                    sample['sra'].append(sra_link)
-                yield sample
-            
-    @classmethod
-    def download(self, accession):
-		pass
-
-def soft_read(fh):
-    soft = {}
-    current = soft
-    for line in fh:
-        ltype = line[0]
-        try:
-            key, val = line[1:].strip().split(" = ")
-            if line.startswith("^"):
-                soft.setdefault(key, {})[val] = {}
-                current =  soft[key][val]
-            else:
-                current.setdefault(key, []).append(val)
-        except:
-            pass
-    return soft
-
-def retrieve_sra(srx, outdir):
-    if not os.path.exists(outdir):
-        os.mkdir(outdir)
-    ftp = FTP(FTP_ROOT)
-    ftp.login()
-    rootdir = "/sra/sra-instant/reads/ByExp/sra/SRX/{0}/{1}".format(srx[:6], srx)
-    ftp.cwd(rootdir)
-    dirs  = []
-    ftp.retrlines('LIST', callback=lambda x: dirs.append(x.split(" ")[-1]))
-    for dirname in dirs:
-        ftp.cwd(os.path.join(rootdir, dirname))
-        fnames = []
-        ftp.retrlines('LIST', callback=lambda x: fnames.append(x.split(" ")[-1]))
-        for fname in fnames:
-            local_name = os.path.join(outdir,fname)
-            sys.stderr.write("Downloading {0}...\n".format(local_name))
-            f = open(local_name, "w")
-            ftp.retrbinary(
-                           "RETR {0}".format(os.path.join(rootdir, dirname, fname)),
-                           f.write
-                           )
-            f.close()
-            yield local_name
-
-
-def download_sra(sra_link, outdir):
-    p = re.compile(r'term=(\w+)')
-    m = p.search(sra_link)
-    if m:
-        srx = m.group(1)
-        for fname in retrieve_sra(srx, outdir):
-            yield fname
+        # Dowload and parse GEO SOFT file
+        fh = urlopen(GEOFTP_URLBASE.format(accession))
+        fo = StringIO.StringIO(fh.read())
+        g = gzip.GzipFile(fileobj=fo)
+        record = self._soft_read(g)
+        
+        for gsm, data in record['SAMPLE'].items():
+            #for k,v in data.items():
+            #    print k,v
+            sample = {'gsm':gsm}
+            sample['tax_id'] = data['Sample_taxid_ch1'][0]
+            sample['sra'] = []
+            sample['name'] = data['Sample_title'][0]
+            sample['library'] = data['Sample_library_strategy'][0]
+            sample['info'] = data['Sample_characteristics_ch1']
+            for sra_link in [x for x in data['Sample_relation'] if x.startswith("SRA")]:
+                sample['sra'].append(sra_link)
+            yield sample
+ 
+    def download_srx(self, srx, outdir):
+        
+        if not os.path.exists(outdir):
+            os.mkdir(outdir)
+        
+        ftp = FTP(FTP_ROOT)
+        ftp.login()
+        rootdir = "/sra/sra-instant/reads/ByExp/sra/SRX/{0}/{1}".format(srx[:6], srx)
+        ftp.cwd(rootdir)
+        dirs  = []
+        ftp.retrlines('LIST', callback=lambda x: dirs.append(x.split(" ")[-1]))
+        for dirname in dirs:
+            ftp.cwd(os.path.join(rootdir, dirname))
+            fnames = []
+            ftp.retrlines('LIST', callback=lambda x: fnames.append(x.split(" ")[-1]))
+            for fname in fnames:
+                local_name = os.path.join(outdir,fname)
+                sys.stderr.write("Downloading {0}...\n".format(local_name))
+                f = open(local_name, "w")
+                ftp.retrbinary(
+                               "RETR {0}".format(os.path.join(rootdir, dirname, fname)),
+                               f.write
+                               )
+                f.close()
+                yield local_name
+   
+    def download_sra(self, sra_link, outdir="./"):
+        p = re.compile(r'term=(\w+)')
+        m = p.search(sra_link)
+        if m:
+            srx = m.group(1)
+            for fname in self.download_srx(srx, outdir):
+                yield fname
                     
     else:
         sys.stderr.write("No SRA link found for {0}\n".format(gsm))
+
+           
+    def download(self, gsm="", outdir="./", format="fastq"):
+        
+        outdir = os.path.join(outdir, self.gse)
+        if gsm:
+            if not self.samples.has_key[gsm]:
+                raise Exeception
+            self._download_sample(self.samples[gsm], outdir=outdir)
+        else:
+            for gsm, sample in self.sample.items():
+                self._download_sample(sample, outdir=outdir)
+
+        
+    def _download_sample(self, sample):
+        for sra_link in sample['sra']:
+            self.download_sra(sra_link)
+
+
+    def _soft_read(self, fh):
+        """ Parses a filehandle of a SOFT formatted file
+        """
+        soft = {}
+        current = soft
+        for line in fh:
+            ltype = line[0]
+            try:
+                key, val = line[1:].strip().split(" = ")
+                if line.startswith("^"):
+                    soft.setdefault(key, {})[val] = {}
+                    current =  soft[key][val]
+                else:
+                    current.setdefault(key, []).append(val)
+            except:
+                pass
+        return soft
+
+    
 
 def sra2fastq(sra, name, outdir="."):
     try:
@@ -235,5 +261,12 @@ def create_hub(gse, samples, upload_dir, user, host,  email):
 
 
 if __name__ == "__main__":
-    print Geo.search("Heeringen AND Veenstra")
+    for k,v in Geo.search("Heeringen AND Veenstra").items():
+        print k,v
+    
+    x = Geo("GSE19413")
+    for sample in x.sample:
+        print sample
+    #print d.keys()
+    #print Geo.get_sample_info(d.keys()[0])
 
