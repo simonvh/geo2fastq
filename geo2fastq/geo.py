@@ -126,7 +126,7 @@ class Geo:
         else:
             for gsm, sample in self.sample.items():
                 self._download_sample(sample, outdir=outdir)
-
+        # Convert files
         
     def _download_sample(self, sample):
         for sra_link in sample['sra']:
