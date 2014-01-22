@@ -21,6 +21,10 @@ FTP_ROOT = "ftp-trace.ncbi.nlm.nih.gov"
 tax2genome = defaultdict(str)
 tax2genome["8364"] = "xenTro3"
 tax2genome["7955"] = "danRer7"
+tax2genome["9606"] = "hg19"
+tax2genome["10090"] = "mm10"
+tax2genome["10116"] = "rn4"
+tax2genome["8355"] = "XENLA_JGIv7b"
 
 class Geo:
     def __init__(self, gse="", email=""):
@@ -166,8 +170,7 @@ class Geo:
                                         ("os", "sys", "re", "glob", "subprocess")
                                         )
                 jobs.append(job)
-                print job()
-                sys.exit()
+        
         for job in jobs:
 
             job()
@@ -204,8 +207,4 @@ if __name__ == "__main__":
     for sample in x.samples.values():
         print sample
     
-    from geo2fastq.geohub import create_hub
-    create_hub(x)
-    #print d.keys()
-    #print Geo.get_sample_info(d.keys()[0])
 

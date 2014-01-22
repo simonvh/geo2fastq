@@ -1,0 +1,7 @@
+genome_dir: /usr/share/genomes
+
+aligner:
+        default: bwa
+        RNA-Seq: gmap
+        ChIP-Seq: bwa
+

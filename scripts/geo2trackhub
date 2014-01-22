@@ -1,11 +1,18 @@
 #!/usr/bin/env python
 import argparse
-import sys
+import glob
 import os
+import pp
+import re
+import sys
+import yaml
 
 from geo2fastq.config import VERSION
 from geo2fastq import Geo
-from geo2fastq import fastq2bam, bam2bw
+from geo2fastq.convert import fastq2bam, bam2bw
+from geo2fastq import config
+
+MAXCPU = 4
 
 description = """
 geo2fastq v{0}
@@ -37,34 +44,48 @@ keep = {
     "bw": True
 }
 
-for gse, info in Geo.search(search_term):
+#config = yaml.load(open("config/geo2fastq.yaml").read())
+print config.config()
+sys.exit()
+
+for gse, info in Geo.search(search_term).items():
     print "{0}\t{1}".format(gse, info['title'])
     for gsm,title in info['samples'].items():
         print "  {0}\t{1}".format(gsm, title)
     
     if download:
+        job_server = pp.Server()
+        if job_server.get_ncpus() > MAXCPU:
+            job_server.set_ncpus(MAXCPU)
         g = Geo(gse)
-        g.download()
+        #g.download()
 
         jobs = []
-        for sample in g.samples:
-            sample['genome'] = tax2genome[sample['tax_id']]
-            genome = sample['genome']
-            if genome: 
-                fqs = glob.glob(os.path.join(gse, "*{0}*.fq.gz".format(sample['gsm'])))
-                bam = os.path.join(gse, "{0}.bam".format(sample['gsm']))
-                fastq2bam(fqs, bam, genome) 
-                bw = bam.replace(".bam", ".bw")
-                job = job_server.submit(bam2bw, (bam, bw), (), ("subprocess", ))
-                jobs.append(job)
-            else:
-                sys.stderr.write("No genome found for tax_id {0}".format(sample['tax_id']))
+        for gsm,sample in g.samples.items():
+            print sample
+            sys.exit()
+            #print sample                
+            fqs = glob.glob(os.path.join(gse, "*{0}*.fq.gz".format(sample['gsm'])))
+            #print fqs
+            name = re.sub(r'[^a-zA-Z1-9_-]', "", sample['name'])
+            bam = os.path.join(gse, "{0}.{1}.bam".format(sample['gsm'], name))
+            #print bam
+            sys.stderr.write("Mapping {0} to {1} -> {2}\n".format(
+                                                                sample['gsm'],
+                                                                sample['genome'],
+                                                                bam)
+                                                                )
+            fastq2bam(fqs, bam, sample['genome'], library=sample['library']) 
+            bw = bam.replace(".bam", ".bw")
+            job = job_server.submit(bam2bw, (bam, bw), (), ("subprocess", ))
+            jobs.append(job)
+
         for job in jobs:
             stdout, stderr = job()
-            #if stderr:
-            #    sys.stderr.write("bam2bw failed\n")
-            #    sys.stderr.write("{0}\n".format(stderr))
-
-        create_hub(gse, samples, "/home/simon/dat/trackhubs", "simon", "localhost", "s.vanheeringen@ncmls.ru.nl")
-
+#            #if stderr:
+#            #    sys.stderr.write("bam2bw failed\n")
+#            #    sys.stderr.write("{0}\n".format(stderr))
+#
+#        create_hub(gse, samples, "/home/simon/dat/trackhubs", "simon", "localhost", "s.vanheeringen@ncmls.ru.nl")
+#
 
