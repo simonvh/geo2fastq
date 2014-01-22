@@ -9,7 +9,6 @@ import re
 import os
 import subprocess as sp
 from collections import defaultdict
-import pp
 import pickle
 
 from geo2fastq.convert import sra2fastq
@@ -146,8 +145,6 @@ class Geo:
 
            
     def download(self, gsm="", outdir="./", format="fastq"):
-        job_server = pp.Server(secret="polentafries") 
-        jobs = []
  
         outdir = os.path.join(outdir, self.gse)
         samples = self.samples.values()
@@ -157,19 +154,11 @@ class Geo:
             samples = [self.samples[gsm]]
         
         for sample in samples:
+            fnames = []
             for fname in self._download_sample(sample, outdir=outdir):
-                job = job_server.submit(
-                                        sra2fastq,
-                                        (fname, sample['gsm'], self.gse),
-                                        (),
-                                        ("os", "sys", "re", "glob", "subprocess")
-                                        )
-                jobs.append(job)
-        
-        for job in jobs:
+                fnames.append(fname)
+            yield sample, fnames
 
-            job()
-        
     def _download_sample(self, sample, outdir="."):
         for sra_link in sample['sra']:
             for fname in self.download_sra(sra_link, outdir):

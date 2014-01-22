@@ -2,15 +2,14 @@
 import argparse
 import glob
 import os
-import pp
 import re
 import sys
 import yaml
+from multiprocessing import Process, Queue
 
-from geo2fastq.config import VERSION
+from geo2fastq.config import VERSION, config
 from geo2fastq import Geo
-from geo2fastq.convert import fastq2bam, bam2bw
-from geo2fastq import config
+from geo2fastq.convert import sra2fastq, fastq2bam, bam2bw
 
 MAXCPU = 4
 
@@ -44,7 +43,7 @@ keep = {
     "bw": True
 }
 
-config = config.config()
+config = config()
 
 for gse, info in Geo.search(search_term).items():
     print "{0}\t{1}".format(gse, info['title'])
@@ -52,16 +51,31 @@ for gse, info in Geo.search(search_term).items():
         print "  {0}\t{1}".format(gsm, title)
     
     if download:
-        job_server = pp.Server()
-        if job_server.get_ncpus() > MAXCPU:
-            job_server.set_ncpus(MAXCPU)
+        
+        def put_things_in_queue(gen, q):
+            for result in gen():
+                q.put(result)
+            q.put("done")
+        
+        q = Queue()
+        
+        # Get GEO info
         g = Geo(gse)
-        g.download()
-
+        # Download samples
+        p = Process(target=put_things_in_queue, args=(g.download, q,))
+        p.start()
+        
         jobs = []
-        for gsm,sample in g.samples.items():
-            print sample
-            sys.exit()
+        while 1:
+            result = q.get()
+            if result == "done":
+                break
+            sample, sras = result
+            
+            for sra in sras:
+                sys.stderr.write("Converting {0} to fastq\n".format(sra))
+                sra2fastq(sra, sample['gsm'], gse)
+
             #print sample                
             fqs = glob.glob(os.path.join(gse, "*{0}*.fq.gz".format(sample['gsm'])))
             #print fqs
@@ -79,19 +93,30 @@ for gse, info in Geo.search(search_term).items():
             
             sys.stderr.write("Mapping {0} to {1} with {3} to {4} -> {2}\n".format(
                                                                 sample['gsm'],
-                                                                sample['genome'],
+                                                                genome,
                                                                 bam,
                                                                 aligner,
                                                                 genome,
                                                                 )
                                                                 )
-            fastq2bam(fqs, bam, sample['genome'], aligner=aligner, genome_dir=genome_dir) 
+            fastq2bam(fqs, bam, genome, aligner=aligner, genome_dir=genome_dir) 
+            
+            # bigWig conversion
+            # No dependencies, so can be run in seperate process
             bw = bam.replace(".bam", ".bw")
-            job = job_server.submit(bam2bw, (bam, bw), (), ("subprocess", ))
-            jobs.append(job)
+            p_bw = Process(target=bam2bw, args=(bam, bw,))
+            sys.stderr.write("Creating bigWig from {0}".format(bam)) 
+            p_bw.start()
+            jobs.append(p_bw)
+        
+        # Wait for termination of download process
+        p.join()
+        
+        # Wait for remaining bigwig conversions 
+        for p_bw in jobs:
+            p_bw.join()
 
-        for job in jobs:
-            stdout, stderr = job()
+
 #            #if stderr:
 #            #    sys.stderr.write("bam2bw failed\n")
 #            #    sys.stderr.write("{0}\n".format(stderr))
