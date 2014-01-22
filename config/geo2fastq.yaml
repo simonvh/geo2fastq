@@ -5,3 +5,10 @@ aligner:
         RNA-Seq: gmap
         ChIP-Seq: bwa
 
+genome_build:
+        8364:   xenTro3
+        7955:   danRer7
+        9606:   hg19
+        10090:  mm10
+        10116:  rn4
+        8355:   XENLA_JGIv7b

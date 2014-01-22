@@ -14,17 +14,8 @@ import pickle
 
 from geo2fastq.convert import sra2fastq
 
-
 GEOFTP_URLBASE = "ftp://ftp.ncbi.nih.gov/pub/geo/DATA/SOFT/by_series/{0}/{0}_family.soft.gz"
 FTP_ROOT = "ftp-trace.ncbi.nlm.nih.gov"
-
-tax2genome = defaultdict(str)
-tax2genome["8364"] = "xenTro3"
-tax2genome["7955"] = "danRer7"
-tax2genome["9606"] = "hg19"
-tax2genome["10090"] = "mm10"
-tax2genome["10116"] = "rn4"
-tax2genome["8355"] = "XENLA_JGIv7b"
 
 class Geo:
     def __init__(self, gse="", email=""):
@@ -89,7 +80,12 @@ class Geo:
                 sys.stderr.write("Please supply either accession or fo")
                 sys.exit(1)
             # Dowload GEO SOFT file
-            fh = urlopen(GEOFTP_URLBASE.format(accession))
+            soft = GEOFTP_URLBASE.format(accession)
+            try:
+                fh = urlopen(soft)
+            except:
+                sys.stderr.write("Could not open SOFT URL {0}\n".format(soft))
+                sys.exit(1)
             fo = StringIO.StringIO(fh.read())
         
         # Parse gzipped SOFT file
@@ -102,8 +98,7 @@ class Geo:
             #for k,v in data.items():
             #    print k,v
             sample = {'gsm':gsm}
-            sample['tax_id'] = data['Sample_taxid_ch1'][0]
-            sample['genome'] = tax2genome[sample['tax_id']]
+            sample['tax_id'] = int(data['Sample_taxid_ch1'][0])
             sample['sra'] = []
             sample['name'] = data['Sample_title'][0]
             sample['library'] = data['Sample_library_strategy'][0]

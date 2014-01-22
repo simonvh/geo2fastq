@@ -44,9 +44,7 @@ keep = {
     "bw": True
 }
 
-#config = yaml.load(open("config/geo2fastq.yaml").read())
-print config.config()
-sys.exit()
+config = config.config()
 
 for gse, info in Geo.search(search_term).items():
     print "{0}\t{1}".format(gse, info['title'])
@@ -58,7 +56,7 @@ for gse, info in Geo.search(search_term).items():
         if job_server.get_ncpus() > MAXCPU:
             job_server.set_ncpus(MAXCPU)
         g = Geo(gse)
-        #g.download()
+        g.download()
 
         jobs = []
         for gsm,sample in g.samples.items():
@@ -69,13 +67,25 @@ for gse, info in Geo.search(search_term).items():
             #print fqs
             name = re.sub(r'[^a-zA-Z1-9_-]', "", sample['name'])
             bam = os.path.join(gse, "{0}.{1}.bam".format(sample['gsm'], name))
-            #print bam
-            sys.stderr.write("Mapping {0} to {1} -> {2}\n".format(
+            
+            # Mapping the fastq file
+            aligner = config['aligner'].setdefault(sample['library'], config['aligner']['default'])
+            genome_dir = config['genome_dir']
+            try:
+                genome = config['genome_build'][sample['tax_id']]
+            except:
+                sys.stderr.write("No genome_build specified for tax_id {0}".format(sample['tax_id']))
+                sys.exit(1)
+            
+            sys.stderr.write("Mapping {0} to {1} with {3} to {4} -> {2}\n".format(
                                                                 sample['gsm'],
                                                                 sample['genome'],
-                                                                bam)
+                                                                bam,
+                                                                aligner,
+                                                                genome,
                                                                 )
-            fastq2bam(fqs, bam, sample['genome'], library=sample['library']) 
+                                                                )
+            fastq2bam(fqs, bam, sample['genome'], aligner=aligner, genome_dir=genome_dir) 
             bw = bam.replace(".bam", ".bw")
             job = job_server.submit(bam2bw, (bam, bw), (), ("subprocess", ))
             jobs.append(job)

@@ -7,7 +7,7 @@ import glob
  
 ALIGN_CMD = "/home/simon/git/soladmin/script/soladmin_align.rb -i {0} -o {1} -g {2} -a {3} -r {4}"
 
-def fastq2bam(fqs, bam, genome, library="", genome_dir="", force=False):
+def fastq2bam(fqs, bam, genome, aligner="", genome_dir="", force=False):
     bams = [] 
     
     if os.path.exists(bam) and not force:
