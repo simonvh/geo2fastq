@@ -20,3 +20,6 @@ _yardoc
 doc/
 *egg-info
 *.pyc
+build/*
+dist/*
+GS*/*
