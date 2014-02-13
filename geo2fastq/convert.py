@@ -16,9 +16,6 @@ def fastq2bam(fqs, bam, genome, aligner="", genome_dir="", force=False):
 
     for fq in fqs:
         bname = fq.replace(".fq.gz", "")
-        aligner = "bwa"
-        if library == "RNA-Seq":
-            aligner = "gsnap"
         
         cmd = ALIGN_CMD.format(fq, bname, genome, aligner, genome_dir)
 
@@ -91,7 +88,7 @@ def sra2fastq(sra, name, outdir=".", keep_sra=False):
         sys.stderr.write("{0}\n".format(e))
         return []
 
-def bam2bw(bam, bw, force=False):
+def bam2bw(bam, bw, library=None, force=False):
     """ Convert bam to UCSC bigWig 
     """
     # Don't overwrite existing bigWig if not explicitly stated
@@ -99,7 +96,16 @@ def bam2bw(bam, bw, force=False):
         sys.stderr.write("{0} already exists, skipping...\n".format(bw))
         return None, None
     
-    cmd = "bam2bw -i {0} -o {1} -e auto -c".format(bam, bw)
+    if library == "RNA-Seq":
+        # Do not extend, keep duplicates
+        cmd = "bam2bw -i {0} -o {1} -D".format(bam, bw)
+    elif library == "ChIP-Seq":
+        # Extend to estimated fragment size and normalize
+        cmd = "bam2bw -i {0} -o {1} -e auto -c".format(bam, bw)
+    else:
+        # Same as ChIP-seq for now
+        cmd = "bam2bw -i {0} -o {1} -e auto -c".format(bam, bw)
+    
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout,stderr = p.communicate()
     return stdout, stderr

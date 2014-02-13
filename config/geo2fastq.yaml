@@ -2,7 +2,7 @@ genome_dir: /usr/share/genomes
 
 aligner:
         default: bwa
-        RNA-Seq: gmap
+        RNA-Seq: gsnap
         ChIP-Seq: bwa
 
 genome_build:
